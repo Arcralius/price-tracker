@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  // Telegram: user sends "/start <linkCode>" to the bot, the worker matches it
+  // and fills in telegramChatId. Can also be pasted manually from @userinfobot.
+  telegramChatId String?
+  linkCode       String  @unique
+
+  items TrackedItem[]
+}
+
+model Product {
+  id       String  @id @default(cuid())
+  url      String  @unique
+  site     String
+  title    String
+  imageUrl String?
+  currency String  @default("SGD")
+
+  lastCheckedAt DateTime?
+  lastError     String?
+  failCount     Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  prices PricePoint[]
+  items  TrackedItem[]
+}
+
+model PricePoint {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  price     Decimal  @db.Decimal(12, 2)
+  // Retailer's struck-through / "usual price" when the page exposes one.
+  listPrice Decimal? @db.Decimal(12, 2)
+  inStock   Boolean  @default(true)
+
+  recordedAt DateTime @default(now())
+
+  @@index([productId, recordedAt])
+}
+
+model TrackedItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  nickname    String?
+  // Optional ceiling: only alert when the price is at or below this.
+  targetPrice Decimal? @db.Decimal(12, 2)
+  // Suppresses repeat alerts for a price we've already shouted about.
+  lastNotifiedPrice Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+// Tiny key/value store, currently just the Telegram getUpdates offset.
+model AppState {
+  key   String @id
+  value String
+}

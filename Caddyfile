@@ -1,0 +1,27 @@
+# Caddy fetches and renews the Let's Encrypt certificate on its own — there is
+# no certbot step. It needs {$DOMAIN} to already resolve to this server, and
+# ports 80 and 443 reachable from the internet.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The app sets its own cookies; these cover what it can't.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy web:3000
+
+	log {
+		output stdout
+		format console
+	}
+}

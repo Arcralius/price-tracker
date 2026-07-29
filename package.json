@@ -1,0 +1,42 @@
+{
+  "name": "price-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "prisma generate && next build",
+    "start": "next start -p 3000",
+    "worker": "tsx worker/index.ts",
+    "check-now": "tsx worker/run-once.ts",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "bcryptjs": "^2.4.3",
+    "cheerio": "^1.0.0",
+    "next": "^15.1.6",
+    "node-cron": "^3.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.7",
+    "@types/node-cron": "^3.0.11",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "prisma@6.19.3": true,
+    "sharp@0.34.5": true,
+    "@prisma/engines@6.19.3": true,
+    "@prisma/client@6.19.3": true
+  }
+}

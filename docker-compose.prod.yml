@@ -1,0 +1,107 @@
+# Production stack. Usage:
+#   cp .env.prod.example .env.prod   (then edit every CHANGE_ME)
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Differences from the dev docker-compose.yml:
+#   - Postgres is NOT published to the host; only the app containers reach it
+#   - schema changes go through `prisma migrate deploy`, never `db push`
+#   - Caddy terminates TLS and gets certificates from Let's Encrypt automatically
+#   - everything restarts unless explicitly stopped, and has a healthcheck
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: tracker
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  # Applies pending migrations, then exits. `web` waits for it to succeed, so a
+  # bad migration stops the deploy instead of half-starting the app.
+  migrate:
+    build: .
+    restart: "no"
+    command: npx prisma migrate deploy
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: node server.js
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      SIGNUP_MODE: ${SIGNUP_MODE:-closed}
+      SIGNUP_CODE: ${SIGNUP_CODE:-}
+      MAX_ITEMS_PER_USER: ${MAX_ITEMS_PER_USER:-100}
+      CHECK_CRON: ${CHECK_CRON:-0 9 * * *}
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      TZ: ${TZ:-Asia/Singapore}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks: [internal]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: npx tsx worker/index.ts
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      CHECK_CRON: ${CHECK_CRON:-0 9 * * *}
+      CHECK_ON_BOOT: ${CHECK_ON_BOOT:-false}
+      NODE_ENV: production
+      TZ: ${TZ:-Asia/Singapore}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
