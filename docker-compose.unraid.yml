@@ -1,0 +1,97 @@
+# Unraid stack, for the Docker Compose Manager plugin.
+#
+# Differences from docker-compose.prod.yml:
+#   - no Caddy, so nothing competes with the Unraid webGUI for ports 80/443
+#     and there is no Caddyfile to place next to this one
+#   - web is published on a port instead, for LAN access or for an existing
+#     reverse proxy (SWAG, Nginx Proxy Manager, Traefik) to sit in front of
+#   - database lives on a pool path by default, never /mnt/user
+#
+# Paste this into: Compose → your stack → Edit Stack → Compose File
+# Paste the env into: Compose → your stack → Edit Stack → .env File
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the .env file}
+      POSTGRES_DB: tracker
+    volumes:
+      # A pool path (/mnt/cache/...), never /mnt/user — that is a FUSE overlay
+      # and Postgres is not safe on it.
+      - ${PGDATA_VOLUME:-/mnt/cache/appdata/price-tracker/pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  # Applies pending migrations then exits. Runs on every Compose Up, and is a
+  # no-op when nothing is pending, so a version bump needs no manual step.
+  migrate:
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    restart: "no"
+    command: npx prisma migrate deploy
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  web:
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    restart: unless-stopped
+    command: node server.js
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in the .env file}
+      # Plain http on the LAN needs this false, or the browser discards the
+      # session cookie and login silently bounces back to the login page.
+      # Set it to true once HTTPS is in front.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      SIGNUP_MODE: ${SIGNUP_MODE:-open}
+      SIGNUP_CODE: ${SIGNUP_CODE:-}
+      MAX_ITEMS_PER_USER: ${MAX_ITEMS_PER_USER:-100}
+      CHECK_CRON: ${CHECK_CRON:-0 9 * * *}
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      TZ: ${TZ:-Asia/Singapore}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks: [internal]
+
+  # Does the daily scraping and sends the Telegram alerts. Without it nothing
+  # is ever re-checked.
+  worker:
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    restart: unless-stopped
+    command: npx tsx worker/index.ts
+    environment:
+      DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      CHECK_CRON: ${CHECK_CRON:-0 9 * * *}
+      CHECK_ON_BOOT: ${CHECK_ON_BOOT:-false}
+      NODE_ENV: production
+      TZ: ${TZ:-Asia/Singapore}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [internal]
+
+networks:
+  internal:

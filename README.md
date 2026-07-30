@@ -191,14 +191,51 @@ No `chown` needed — the Postgres image fixes ownership of its data directory o
 startup. Unraid's usual `PUID`/`PGID` dance doesn't apply here either: only the
 `db` container writes to a bind mount, and it manages that itself.
 
-You also need **Docker Compose Manager** from Community Applications, since
-Unraid doesn't ship the compose plugin. Create a project, drop
-`docker-compose.prod.yml`, `Caddyfile` and `.env.prod` into its directory, then
-use Compose Up — or from a terminal:
+#### With Docker Compose Manager (recommended)
+
+Use **`docker-compose.unraid.yml`**, not the prod one. It drops Caddy — so
+nothing fights the Unraid webGUI for ports 80/443, and there's no `Caddyfile` to
+place beside it — and publishes `web` on a port instead, ready for LAN access or
+for SWAG / Nginx Proxy Manager to sit in front.
+
+1. **Compose → ADD NEW STACK**, name it `price-tracker`.
+2. Click the stack's cog → **Edit Stack → Compose File**. Paste the contents of
+   [`docker-compose.unraid.yml`](docker-compose.unraid.yml). Save.
+3. Cog → **Edit Stack → .env File**. Paste
+   [`.env.unraid.example`](.env.unraid.example) and edit the two `CHANGE_ME`
+   lines:
+
+   ```bash
+   openssl rand -base64 24   # POSTGRES_PASSWORD
+   openssl rand -hex 32      # SESSION_SECRET
+   ```
+
+   Compose reads `.env` from the project directory automatically — the plugin
+   passes no `--env-file`, which is why the file must be named exactly `.env`.
+4. Create the data directory, using your actual pool name (`ls /mnt/`):
+
+   ```bash
+   mkdir -p /mnt/cache/appdata/price-tracker/pgdata
+   ```
+5. **COMPOSE UP**, then turn **AUTO START** on so it survives a reboot.
+6. Open `http://<your-unraid-ip>:3000`, create your account, then set
+   `SIGNUP_MODE=closed` in the .env file and hit Compose Up again.
+
+Compose Up is safe to repeat: migrations run in their own service that exits
+before the app starts, and reports `No pending migrations to apply.` when
+there's nothing to do. That is also how you upgrade — bump `APP_IMAGE`, then
+Update Stack followed by Compose Up.
+
+`COOKIE_SECURE=false` is preset because you'll reach it over plain http at
+first. Change it to `true` once HTTPS is terminated in front, or logins are
+sent in cleartext.
+
+To check on it:
 
 ```bash
 cd /boot/config/plugins/compose.manager/projects/price-tracker
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
+docker compose logs -f worker     # the daily scrape
+docker compose ps                 # web should show (healthy)
 ```
 
 #### Without Compose, using Docker → Add Container
