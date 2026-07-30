@@ -68,15 +68,17 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-**Option B — pull a published image.** Faster, and needs no build toolchain or
-source on the server. Only three files have to be present:
+**Option B — pull the published image**
+([`arcralius/price-tracker`](https://hub.docker.com/r/arcralius/price-tracker),
+`linux/amd64`). Faster, and needs no build toolchain or source on the server.
+Only three files have to be present:
 
 ```bash
 mkdir -p /srv/tracker && cd /srv/tracker
 curl -O https://raw.githubusercontent.com/Arcralius/price-tracker/main/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Arcralius/price-tracker/main/Caddyfile
 curl -o .env.prod https://raw.githubusercontent.com/Arcralius/price-tracker/main/.env.prod.example
-# ... edit .env.prod, setting APP_IMAGE=<you>/price-tracker:0.1.0, then:
+# ... edit .env.prod (APP_IMAGE is already set to the published tag), then:
 docker compose -f docker-compose.prod.yml --env-file .env.prod pull
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
 ```
