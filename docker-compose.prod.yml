@@ -17,7 +17,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: tracker
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PGDATA_VOLUME picks where the database lives. A bare name (the default)
+      # is a Docker named volume; anything starting with / or ./ is a host path
+      # bind mount. See "Putting the database somewhere else" in the README —
+      # in particular, do not point this at NFS/SMB.
+      - ${PGDATA_VOLUME:-pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
       interval: 10s

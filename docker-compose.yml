@@ -8,7 +8,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Bare name = Docker named volume; a path starting with / or ./ = bind mount.
+      - ${PGDATA_VOLUME:-pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
       interval: 5s

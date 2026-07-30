@@ -67,6 +67,83 @@ How the prod stack differs from the dev one:
 | Container user | root | `node` (uid 1000) |
 | Registration | open | `invite` / `closed` |
 
+### Putting the database somewhere else
+
+`PGDATA_VOLUME` in `.env.prod` decides where Postgres keeps its files. A bare
+name is a Docker named volume; anything starting with `/` or `./` is a host path.
+
+```bash
+# 1. create the directory on a local disk
+sudo mkdir -p /mnt/data/tracker/pgdata
+
+# 2. point the stack at it
+echo 'PGDATA_VOLUME=/mnt/data/tracker/pgdata' >> .env.prod
+
+# 3. up as usual
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+No `chown` needed: the `postgres` image's entrypoint starts as root, fixes
+ownership of the data directory itself (`fixing permissions on existing
+directory ... ok`), then drops to the `postgres` user. You would only need
+`sudo chown -R 999:999` on that directory if you added a `user:` override to the
+`db` service, which this stack doesn't.
+
+**Moving a database that already has data.** Changing `PGDATA_VOLUME` does not
+migrate anything — Postgres would come up on an empty directory and initialise a
+fresh database, and your history would still be sitting in the old volume,
+invisible. Copy it across deliberately:
+
+```bash
+C="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+
+$C exec -T db pg_dump -U tracker tracker | gzip > pre-move.sql.gz   # safety net
+$C down                                                            # stop writers
+docker volume ls | grep pgdata                                     # find the old volume name
+
+sudo mkdir -p /mnt/data/tracker/pgdata
+docker run --rm \
+  -v tracker_pgdata:/from \
+  -v /mnt/data/tracker/pgdata:/to \
+  alpine sh -c 'cp -a /from/. /to/'      # -a preserves ownership and modes
+
+echo 'PGDATA_VOLUME=/mnt/data/tracker/pgdata' >> .env.prod
+$C up -d
+```
+
+Substitute the real volume name from `docker volume ls` — Compose prefixes it
+with the project name, which defaults to the directory name.
+
+Verify before deleting the old volume:
+
+```bash
+$C exec -T db psql -U tracker -d tracker -c \
+  'select count(*) as products, (select count(*) from "PricePoint") as points from "Product";'
+```
+
+**Do not put the data directory on NFS, SMB/CIFS, or a filesystem shared between
+machines.** Postgres depends on POSIX locking and real `fsync` semantics that
+network filesystems emulate loosely or not at all; the failure mode is silent
+corruption discovered weeks later. Worse, if two hosts ever mount the same
+directory and both start Postgres, they will destroy the database — the lock
+that normally prevents this doesn't work reliably over NFS.
+
+If the goal is for the data to survive the host or be reachable from elsewhere,
+use a local disk (or an attached block volume — EBS, Hetzner Volume, iSCSI LUN,
+anything that presents as a real block device) for `PGDATA_VOLUME`, and write
+`pg_dump` backups to the network share instead:
+
+```bash
+$C exec -T db pg_dump -U tracker tracker | gzip > /mnt/share/tracker-$(date +%F).sql.gz
+```
+
+That gives you off-host durability without asking Postgres to run on storage it
+can't trust. A nightly cron line does the job:
+
+```
+15 3 * * * cd /srv/tracker && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db pg_dump -U tracker tracker | gzip > /mnt/share/tracker-$(date +\%F).sql.gz
+```
+
 Everyday operations:
 
 ```bash
@@ -85,10 +162,39 @@ To restore: `gunzip -c backup.sql.gz | $C exec -T db psql -U tracker tracker`.
 
 ## Telegram alerts
 
-1. Message [@BotFather](https://t.me/BotFather), send `/newbot`, copy the token.
-2. Put it in `.env` as `TELEGRAM_BOT_TOKEN`, restart.
-3. Open **Settings** in the app and follow the link button. It opens your bot with a one-time code;
-   pressing Start links your account.
+1. Message [@BotFather](https://t.me/BotFather), send `/newbot`, copy the token —
+   it looks like `8123456789:AAHk9x_PqR3sTuVwXyZ...`.
+2. Put it in your env file as `TELEGRAM_BOT_TOKEN`:
+
+   ```ini
+   # .env for local dev, .env.prod on a server — same variable name either way
+   TELEGRAM_BOT_TOKEN="8123456789:AAHk9x_PqR3sTuVwXyZ..."
+   ```
+
+   Quote it: the token contains characters a shell would otherwise interpret.
+   Never commit it — `.gitignore` already excludes `.env*` apart from the
+   `.example` files.
+
+3. Recreate the two services that read it. **Both** need it: `worker` sends the
+   daily alerts and polls for account links, `web` renders the Settings page and
+   the test-message button.
+
+   ```bash
+   C="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+   $C up -d web worker          # picks up the new value; db is untouched
+   $C logs worker | grep -i telegram
+   # want: [worker] Telegram alerts enabled.
+   # not:  [worker] TELEGRAM_BOT_TOKEN not set — alerts disabled.
+   ```
+
+   Locally, just restart `npm run dev` and `npm run worker`.
+
+4. Open **Settings** in the app and follow the link button. It opens your bot
+   with a one-time code; pressing Start links your account. "Send test message"
+   confirms the whole path.
+
+The token is read from the environment at runtime only — it is never written to
+the database, baked into the image, or sent to the browser.
 
 Telegram doesn't let bots message people who haven't talked to them first, which is why the linking
 step exists. The worker polls `getUpdates` once a minute to pick up new links; the Settings page also
