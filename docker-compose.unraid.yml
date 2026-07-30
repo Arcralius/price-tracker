@@ -9,6 +9,11 @@
 #
 # Paste this into: Compose → your stack → Edit Stack → Compose File
 # Paste the env into: Compose → your stack → Edit Stack → .env File
+#
+# IMPORTANT: clear the editor first (Ctrl+A, Delete). The plugin pre-fills a
+# template that already declares `services:`, and pasting underneath it gives
+#   yaml: unmarshal errors: mapping key "services" already defined at line 1
+# This file must be the entire contents, starting at the line below.
 
 services:
   db:
