@@ -1,4 +1,5 @@
 import { adaptersFor } from "./adapters";
+import { browserEnabled, renderPage } from "./browser";
 import { fetchText } from "./fetcher";
 import { extractGeneric } from "./generic";
 import { Extraction } from "./types";
@@ -48,9 +49,34 @@ export async function extractFromUrl(url: string): Promise<Extraction> {
   const generic = extractGeneric(html, url);
   if (generic) return generic;
 
+  // Last resort: render in a real browser, then run the same extractors over
+  // the resulting DOM. Only available when a browser service is configured.
+  if (browserEnabled()) {
+    try {
+      const rendered = await renderPage(url);
+
+      for (const adapter of matched) {
+        if (!adapter.fromHtml) continue;
+        const result = adapter.fromHtml(rendered, url);
+        if (result) return { ...result, source: `${result.source}+browser` };
+      }
+
+      const renderedGeneric = extractGeneric(rendered, url);
+      if (renderedGeneric) return { ...renderedGeneric, source: `${renderedGeneric.source}+browser` };
+
+      failures.push("browser: rendered the page but still found no price");
+    } catch (error) {
+      failures.push(`browser: ${message(error)}`);
+    }
+  }
+
   const detail = failures.length ? ` Tried: ${failures.join("; ")}.` : "";
+  const hint = browserEnabled()
+    ? ""
+    : " Enabling the optional browser service lets it read prices that are rendered in JavaScript.";
+
   throw new Error(
-    `Couldn't find a price on that page. The site may render prices in JavaScript or block automated visits.${detail}`
+    `Couldn't find a price on that page. The site may render prices in JavaScript or block automated visits.${hint}${detail}`
   );
 }
 

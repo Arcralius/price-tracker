@@ -42,7 +42,7 @@ services:
   # Applies pending migrations then exits. Runs on every Compose Up, and is a
   # no-op when nothing is pending, so a version bump needs no manual step.
   migrate:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
     restart: "no"
     # Retry rather than dying on the first attempt: a healthcheck-passing
     # Postgres can still refuse connections for a moment (it restarts once
@@ -63,7 +63,7 @@ services:
     networks: [internal]
 
   web:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
     restart: unless-stopped
     command: node server.js
     ports:
@@ -86,6 +86,7 @@ services:
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
       TZ: ${TZ:-Asia/Singapore}
+      BROWSER_WS_ENDPOINT: ${BROWSER_WS_ENDPOINT:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -95,12 +96,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    networks: [internal]
+    networks: [internal, browsernet]
 
   # Does the daily scraping and sends the Telegram alerts. Without it nothing
   # is ever re-checked.
   worker:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.1.1}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
     restart: unless-stopped
     command: npx tsx worker/index.ts
     environment:
@@ -110,10 +111,28 @@ services:
       CHECK_ON_BOOT: ${CHECK_ON_BOOT:-false}
       NODE_ENV: production
       TZ: ${TZ:-Asia/Singapore}
+      BROWSER_WS_ENDPOINT: ${BROWSER_WS_ENDPOINT:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [internal]
+    networks: [internal, browsernet]
+
+  # OPTIONAL. Renders pages in a real Chromium for sites that build their price
+  # in JavaScript (IKEA, most airline fare pages). Off unless you set
+  # COMPOSE_PROFILES=browser in the .env file — the image is ~2GB.
+  #
+  # Deliberately on its own network with no route to `db`: it loads arbitrary
+  # third-party pages, so it should not be able to reach the database.
+  browser:
+    image: mcr.microsoft.com/playwright:v1.62.1-noble
+    profiles: ["browser"]
+    restart: unless-stopped
+    init: true
+    user: pwuser
+    working_dir: /home/pwuser
+    command: npx -y playwright@1.62.1 run-server --port 3000 --host 0.0.0.0
+    networks: [browsernet]
 
 networks:
   internal:
+  browsernet:

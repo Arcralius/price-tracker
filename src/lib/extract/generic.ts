@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { Extraction, guessCurrency, parsePrice } from "./types";
+import { Extraction, currencyFromUrl, guessCurrency, parsePrice } from "./types";
 
 type Loaded = cheerio.CheerioAPI;
 
@@ -10,14 +10,20 @@ type Loaded = cheerio.CheerioAPI;
  */
 export function extractGeneric(html: string, url: string): Extraction | null {
   const $ = cheerio.load(html);
-  return (
+  const found =
     fromJsonLd($, html) ??
     fromMicrodata($) ??
     fromMeta($) ??
     fromNextData(html) ??
     fromVisibleText($) ??
-    null
-  );
+    null;
+
+  if (!found) return null;
+
+  // A strategy that couldn't find a currency beside the price leaves it blank
+  // rather than guessing; fill it from the site's own region.
+  if (!found.currency) found.currency = currencyFromUrl(url);
+  return found;
 }
 
 /* ------------------------------- JSON-LD -------------------------------- */
@@ -241,18 +247,24 @@ function searchJson(root: unknown, PRICE_KEYS: RegExp): Extraction | null {
       continue;
     }
 
-    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    const obj = node as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(obj)) {
       if (price === null && PRICE_KEYS.test(key)) {
         const p = parsePrice(value as string | number);
-        // Objects like { value: 49.9, currency: "SGD" } are common.
-        if (p !== null) price = p;
-        else if (value && typeof value === "object") queue.push(value);
+        if (p !== null) {
+          price = p;
+          // Only trust a currency sitting beside the price. Searching the whole
+          // blob picks up unrelated config — a Uniqlo SG page carries a stray
+          // "USD" that would otherwise mislabel a page priced in SGD.
+          currency = siblingCurrency(obj);
+        } else if (value && typeof value === "object") {
+          // Shapes like { price: { value: 49.9, currency: "SGD" } }.
+          queue.push(value);
+        }
       }
       if (!title && TITLE_KEYS.test(key) && typeof value === "string" && value.length > 2) {
         title = value;
-      }
-      if (!currency && /currency/i.test(key) && typeof value === "string" && value.length === 3) {
-        currency = value;
       }
       if (value && typeof value === "object") queue.push(value);
     }
@@ -262,10 +274,24 @@ function searchJson(root: unknown, PRICE_KEYS: RegExp): Extraction | null {
   return {
     title: title ?? "Untitled product",
     price,
-    currency: (currency ?? "SGD").toUpperCase(),
+    currency: currency?.toUpperCase() ?? "",
     inStock: true,
     source: "inline-json",
   };
+}
+
+/** A 3-letter currency code declared on the same object as the price. */
+function siblingCurrency(obj: Record<string, unknown>): string | undefined {
+  for (const [key, value] of Object.entries(obj)) {
+    if (!/currency/i.test(key)) continue;
+    if (typeof value === "string" && /^[A-Za-z]{3}$/.test(value)) return value;
+    // { currency: { code: "SGD", symbol: "$" } }
+    if (value && typeof value === "object") {
+      const code = (value as Record<string, unknown>)["code"];
+      if (typeof code === "string" && /^[A-Za-z]{3}$/.test(code)) return code;
+    }
+  }
+  return undefined;
 }
 
 /* ---------------------------- Visible-text last -------------------------- */

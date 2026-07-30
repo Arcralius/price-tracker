@@ -80,6 +80,36 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   "₩": "KRW",
 };
 
+/**
+ * Currency implied by the site itself, used when the page states a price but no
+ * currency beside it. A country TLD (or a /sg/ style path prefix) is a far
+ * better signal than assuming.
+ */
+const TLD_CURRENCY: Record<string, string> = {
+  sg: "SGD", my: "MYR", th: "THB", id: "IDR", ph: "PHP", vn: "VND",
+  jp: "JPY", kr: "KRW", cn: "CNY", tw: "TWD", hk: "HKD", in: "INR",
+  uk: "GBP", de: "EUR", fr: "EUR", es: "EUR", it: "EUR", nl: "EUR", ie: "EUR",
+  au: "AUD", nz: "NZD", ca: "CAD", us: "USD",
+};
+
+export function currencyFromUrl(url: string, fallback = "SGD"): string {
+  try {
+    const parsed = new URL(url);
+
+    const tld = parsed.hostname.split(".").pop()?.toLowerCase();
+    if (tld && TLD_CURRENCY[tld]) return TLD_CURRENCY[tld];
+
+    // Region-prefixed paths on global domains, e.g. uniqlo.com/sg/en/...
+    const segment = parsed.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+    if (segment && segment.length === 2 && TLD_CURRENCY[segment]) return TLD_CURRENCY[segment];
+
+    if (parsed.hostname.endsWith(".com")) return "USD";
+  } catch {
+    /* fall through */
+  }
+  return fallback;
+}
+
 export function guessCurrency(text: string | undefined, fallback = "SGD"): string {
   if (!text) return fallback;
 

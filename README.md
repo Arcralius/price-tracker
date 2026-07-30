@@ -171,7 +171,7 @@ well-known source of corruption. Use the direct pool path:
 PGDATA_VOLUME="/mnt/cache/appdata/price-tracker/pgdata"
 CADDY_DATA_VOLUME="/mnt/cache/appdata/price-tracker/caddy-data"
 CADDY_CONFIG_VOLUME="/mnt/cache/appdata/price-tracker/caddy-config"
-APP_IMAGE="arcralius/price-tracker:0.1.1"
+APP_IMAGE="arcralius/price-tracker:0.2.0"
 ```
 
 If your pool is named something else (Unraid 6.12+ allows this), use that name —
@@ -273,7 +273,7 @@ password:
 ```bash
 docker run --rm --network tracker-net \
   -e DATABASE_URL="postgresql://tracker:YOURPASSWORD@tracker-db:5432/tracker?schema=public" \
-  arcralius/price-tracker:0.1.1 npx prisma migrate deploy
+  arcralius/price-tracker:0.2.0 npx prisma migrate deploy
 ```
 
 Expect `All migrations have been successfully applied.` Re-run this after
@@ -284,7 +284,7 @@ pulling a new image version; it is a no-op when nothing is pending.
 | Field | Value |
 |---|---|
 | Name | `price-tracker-web` |
-| Repository | `arcralius/price-tracker:0.1.1` |
+| Repository | `arcralius/price-tracker:0.2.0` |
 | Network Type | `tracker-net` |
 | Port | Container `3000` → Host `3000` |
 | WebUI | `http://[IP]:[PORT:3000]` |
@@ -306,7 +306,7 @@ sends Telegram alerts; without it nothing is ever re-checked:
 | Field | Value |
 |---|---|
 | Name | `price-tracker-worker` |
-| Repository | `arcralius/price-tracker:0.1.1` |
+| Repository | `arcralius/price-tracker:0.2.0` |
 | Network Type | `tracker-net` |
 | Post Arguments | `npx tsx worker/index.ts` |
 | Variable | `DATABASE_URL` = *(same as web)* |
@@ -475,15 +475,36 @@ suppressed.
 
 Adding a site is a matter of appending one object to the `adapters` array.
 
-### What won't work
+### What won't work, and the browser fallback
 
-Sites that render prices only after a JS fetch **and** expose no JSON API or structured data. In
-practice that's most airline booking engines (fare pages are usually POST-driven searches, not stable
-URLs) and anything behind Cloudflare bot protection or a login. Those fail loudly — the item shows
-"Check failed" with the reason on its page rather than silently recording nothing.
+Sites that build their price in JavaScript *and* expose no structured data or
+JSON API can't be read from the raw HTML. Most retailers turn out not to be in
+that group — they emit JSON-LD for Google's benefit, which is why the static
+path covers so much.
 
-If you hit a wall on a site you care about, the fix is either a site adapter or swapping `fetchText`
-in `src/lib/extract/fetcher.ts` for a headless browser or a scraping API.
+For the ones that genuinely are, there's an optional headless browser. It only
+runs after every static strategy has failed, so ordinary sites never pay for it:
+
+```ini
+# in your .env
+COMPOSE_PROFILES=browser
+BROWSER_WS_ENDPOINT=ws://browser:3000/
+```
+
+Then bring the stack up as usual. The `browser` service is a Playwright server
+in its own container, on its own network with no route to `db` — it loads
+arbitrary third-party pages, so it shouldn't be able to reach the database. The
+image is ~2GB, which is why it's opt-in and why the app image doesn't bundle
+Chromium.
+
+It blocks images, fonts and media, waits for something price-shaped to appear
+rather than sleeping a fixed time, and hands the rendered DOM back through the
+same extractors. A render costs roughly 5-20s versus well under a second for
+the static path.
+
+Even this doesn't beat everything: sites behind Cloudflare's interactive
+challenge, anything requiring a login, and most airline fares (which are
+POST-driven searches with no stable URL to track) remain out of reach.
 
 ### Politeness
 

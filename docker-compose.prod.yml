@@ -69,6 +69,7 @@ services:
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
       TZ: ${TZ:-Asia/Singapore}
+      BROWSER_WS_ENDPOINT: ${BROWSER_WS_ENDPOINT:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -78,7 +79,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    networks: [internal]
+    networks: [internal, browsernet]
 
   worker:
     image: ${APP_IMAGE:-price-tracker:local}
@@ -92,10 +93,11 @@ services:
       CHECK_ON_BOOT: ${CHECK_ON_BOOT:-false}
       NODE_ENV: production
       TZ: ${TZ:-Asia/Singapore}
+      BROWSER_WS_ENDPOINT: ${BROWSER_WS_ENDPOINT:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [internal]
+    networks: [internal, browsernet]
 
   caddy:
     image: caddy:2-alpine
@@ -117,8 +119,22 @@ services:
       - web
     networks: [internal]
 
+  # OPTIONAL. Renders JavaScript-built prices. Enable with
+  # COMPOSE_PROFILES=browser and BROWSER_WS_ENDPOINT=ws://browser:3000/
+  # Isolated from `db` on purpose — it loads arbitrary third-party pages.
+  browser:
+    image: mcr.microsoft.com/playwright:v1.62.1-noble
+    profiles: ["browser"]
+    restart: unless-stopped
+    init: true
+    user: pwuser
+    working_dir: /home/pwuser
+    command: npx -y playwright@1.62.1 run-server --port 3000 --host 0.0.0.0
+    networks: [browsernet]
+
 networks:
   internal:
+  browsernet:
 
 volumes:
   pgdata:

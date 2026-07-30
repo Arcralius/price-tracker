@@ -94,14 +94,20 @@ Someone else's server does the work here, so:
 
 ## What doesn't work
 
-Sites that render prices only after a JS fetch and expose no API or structured
-data. IKEA SG ships a megabyte of HTML with the price in none of it. Most
-airline fares live behind POST-driven searches with no stable URL to track,
-which no amount of scraping cleverness fixes.
+Sites that render prices only after a JS fetch *and* expose no API or structured
+data. That group is smaller than I first assumed — I'd written IKEA off on the
+strength of a product URL that turned out to be invalid and redirecting to the
+homepage. Real IKEA product pages carry perfectly good JSON-LD. Worth checking
+what you actually fetched before blaming the site.
 
-Those fail visibly. The fix, when a site matters enough, is a twenty-line
-adapter — or swapping the fetch layer for a headless browser, which is a real
-cost in RAM and complexity that I didn't want to pay by default.
+Most airline fares are genuinely out of reach, but for a different reason: they
+live behind POST-driven searches with no stable URL to track, which no amount of
+scraping cleverness fixes.
+
+For the rest there's an optional headless browser, in its own container, tried
+only after every static strategy has failed. Rendering costs 5-20s against well
+under a second, so it stays off by default and the app image stays free of
+Chromium.
 
 ## Adapters, when it's worth it
 
