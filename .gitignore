@@ -3,8 +3,9 @@ node_modules/
 out/
 .env
 .env.*
-!.env.example
-!.env.prod.example
+# Keep every *.example template — a per-file allowlist silently dropped
+# .env.unraid.example when it was added.
+!.env*.example
 *.log
 .DS_Store
 next-env.d.ts
