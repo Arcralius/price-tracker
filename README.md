@@ -135,6 +135,76 @@ How the prod stack differs from the dev one:
 | Container user | root | `node` (uid 1000) |
 | Registration | open | `invite` / `closed` |
 
+### Unraid
+
+Two Unraid-specific things will bite you, both before the app even starts.
+
+**1. Ports 80 and 443 belong to the Unraid webGUI.** Caddy cannot bind them
+until you move the GUI or give Caddy its own IP. Pick one:
+
+- *Move the webGUI* — Settings → Management Access, set HTTP to `8080` and
+  HTTPS to `8443`. Simplest, but you access Unraid on a new port from then on.
+- *Give Caddy its own IP* (usually nicer) — add to the `caddy` service and drop
+  its `ports:` block entirely:
+
+  ```yaml
+      networks:
+        br0:
+          ipv4_address: 192.168.1.240   # a free IP outside your DHCP pool
+  ```
+  ```yaml
+  networks:
+    br0:
+      external: true
+  ```
+  Then point your router's 80/443 forwards at that IP instead of the server's.
+- *Already running SWAG or Nginx Proxy Manager?* Delete the `caddy` service, add
+  `ports: ["3000:3000"]` to `web`, and reverse-proxy to it from what you have.
+
+**2. Do not put the database on `/mnt/user/`.** That path is shfs, Unraid's FUSE
+overlay across the array. Postgres needs the POSIX locking and honest `fsync`
+that a FUSE layer doesn't reliably provide, and "database on /mnt/user" is a
+well-known source of corruption. Use the direct pool path:
+
+```ini
+# in .env.prod — note /mnt/cache, NOT /mnt/user
+PGDATA_VOLUME="/mnt/cache/appdata/price-tracker/pgdata"
+CADDY_DATA_VOLUME="/mnt/cache/appdata/price-tracker/caddy-data"
+CADDY_CONFIG_VOLUME="/mnt/cache/appdata/price-tracker/caddy-config"
+APP_IMAGE="arcralius/price-tracker:0.1.0"
+```
+
+If your pool is named something else (Unraid 6.12+ allows this), use that name —
+`/mnt/mypool/appdata/...`. Check with `ls /mnt/`.
+
+Then make sure Mover can never relocate live database files: **Shares →
+appdata → Primary storage: cache, Secondary storage: none.** If appdata is set
+to move to the array, Mover will try to relocate files Postgres has open.
+
+Setup:
+
+```bash
+mkdir -p /mnt/cache/appdata/price-tracker/{pgdata,caddy-data,caddy-config}
+```
+
+No `chown` needed — the Postgres image fixes ownership of its data directory on
+startup. Unraid's usual `PUID`/`PGID` dance doesn't apply here either: only the
+`db` container writes to a bind mount, and it manages that itself.
+
+You also need **Docker Compose Manager** from Community Applications, since
+Unraid doesn't ship the compose plugin. Create a project, drop
+`docker-compose.prod.yml`, `Caddyfile` and `.env.prod` into its directory, then
+use Compose Up — or from a terminal:
+
+```bash
+cd /boot/config/plugins/compose.manager/projects/price-tracker
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
+```
+
+Back up `/mnt/cache/appdata/price-tracker/` with the Appdata Backup plugin, or
+use the `pg_dump` cron below — the plugin copies files, which for a running
+database is less trustworthy than a dump.
+
 ### Putting the database somewhere else
 
 `PGDATA_VOLUME` in `.env.prod` decides where Postgres keeps its files. A bare
