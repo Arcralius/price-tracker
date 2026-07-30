@@ -91,7 +91,7 @@ the running code.
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # SESSION_SECRET
-openssl rand -base64 24                                                   # POSTGRES_PASSWORD
+openssl rand -hex 24                                                   # POSTGRES_PASSWORD
 ```
 
 At minimum set `DOMAIN`, `ACME_EMAIL`, `POSTGRES_PASSWORD` and `SESSION_SECRET`.
@@ -206,7 +206,7 @@ for SWAG / Nginx Proxy Manager to sit in front.
    lines:
 
    ```bash
-   openssl rand -base64 24   # POSTGRES_PASSWORD
+   openssl rand -hex 24   # POSTGRES_PASSWORD
    openssl rand -hex 32      # SESSION_SECRET
    ```
 
