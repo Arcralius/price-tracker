@@ -47,7 +47,9 @@ services:
     restart: unless-stopped
     command: node server.js
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      # Host port : container port. Only the host side can clash with your
+      # other containers; the container side stays 3000 regardless.
+      - "${WEB_PORT:-8383}:3000"
     environment:
       DATABASE_URL: postgresql://tracker:${POSTGRES_PASSWORD}@db:5432/tracker?schema=public
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in the .env file}
