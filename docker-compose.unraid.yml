@@ -19,9 +19,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the .env file}
       POSTGRES_DB: tracker
     volumes:
-      # A pool path (/mnt/cache/...), never /mnt/user — that is a FUSE overlay
-      # and Postgres is not safe on it.
-      - ${PGDATA_VOLUME:-/mnt/cache/appdata/price-tracker/pgdata}:/var/lib/postgresql/data
+      # Prefer the direct pool path (/mnt/cache/appdata/...) over /mnt/user/,
+      # which goes through shfs, Unraid's FUSE overlay. Postgres wants real
+      # POSIX locking and fsync, and shfs is slower besides.
+      #
+      # When the appdata share is cache-only these are the SAME directory on
+      # disk, just reached without the FUSE layer — so you keep the standard
+      # appdata layout and lose nothing. See the README.
+      - ${PGDATA_VOLUME:-/mnt/user/appdata/price-tracker/pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
       interval: 10s
