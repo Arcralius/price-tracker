@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 import { cookies } from "next/headers";
+import { cookieSecure } from "./cookie-policy";
 import { prisma } from "./db";
 
 const COOKIE = "pt_session";
@@ -42,7 +43,7 @@ export async function createSession(userId: string) {
   jar.set(COOKIE, mint(userId), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     path: "/",
     maxAge: MAX_AGE_SECONDS,
   });

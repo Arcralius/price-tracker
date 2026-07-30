@@ -171,7 +171,7 @@ well-known source of corruption. Use the direct pool path:
 PGDATA_VOLUME="/mnt/cache/appdata/price-tracker/pgdata"
 CADDY_DATA_VOLUME="/mnt/cache/appdata/price-tracker/caddy-data"
 CADDY_CONFIG_VOLUME="/mnt/cache/appdata/price-tracker/caddy-config"
-APP_IMAGE="arcralius/price-tracker:0.1.0"
+APP_IMAGE="arcralius/price-tracker:0.1.1"
 ```
 
 If your pool is named something else (Unraid 6.12+ allows this), use that name —
@@ -200,6 +200,88 @@ use Compose Up — or from a terminal:
 cd /boot/config/plugins/compose.manager/projects/price-tracker
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
 ```
+
+#### Without Compose, using Docker → Add Container
+
+Unraid's Add Container form builds one container, and this app needs three
+(plus a one-off migration). It works, it's just manual. Do them in this order.
+
+**First, a user-defined network** — on Unraid's default `bridge`, containers
+cannot resolve each other by name, and these need to. From a terminal:
+
+```bash
+docker network create tracker-net
+mkdir -p /mnt/cache/appdata/price-tracker/pgdata
+```
+
+`tracker-net` then appears in the Network Type dropdown. Pick it for all three.
+
+**1. Database** — Add Container, Advanced View:
+
+| Field | Value |
+|---|---|
+| Name | `tracker-db` |
+| Repository | `postgres:16-alpine` |
+| Network Type | `tracker-net` |
+| Path | Container `/var/lib/postgresql/data` → Host `/mnt/cache/appdata/price-tracker/pgdata` |
+| Variable | `POSTGRES_USER` = `tracker` |
+| Variable | `POSTGRES_PASSWORD` = *(a password you choose)* |
+| Variable | `POSTGRES_DB` = `tracker` |
+
+No port mapping — nothing outside the Docker network should reach Postgres.
+
+**2. Migrations** — a one-off, easiest from the terminal. Substitute your
+password:
+
+```bash
+docker run --rm --network tracker-net \
+  -e DATABASE_URL="postgresql://tracker:YOURPASSWORD@tracker-db:5432/tracker?schema=public" \
+  arcralius/price-tracker:0.1.1 npx prisma migrate deploy
+```
+
+Expect `All migrations have been successfully applied.` Re-run this after
+pulling a new image version; it is a no-op when nothing is pending.
+
+**3. Web** — Add Container:
+
+| Field | Value |
+|---|---|
+| Name | `price-tracker-web` |
+| Repository | `arcralius/price-tracker:0.1.1` |
+| Network Type | `tracker-net` |
+| Port | Container `3000` → Host `3000` |
+| WebUI | `http://[IP]:[PORT:3000]` |
+| Post Arguments | `node server.js` |
+| Variable | `DATABASE_URL` = `postgresql://tracker:YOURPASSWORD@tracker-db:5432/tracker?schema=public` |
+| Variable | `SESSION_SECRET` = *(64 random hex chars)* |
+| Variable | `COOKIE_SECURE` = `false` |
+| Variable | `SIGNUP_MODE` = `open` (change to `closed` once your account exists) |
+| Variable | `TZ` = `Asia/Singapore` |
+
+`COOKIE_SECURE=false` matters here. Reached over plain `http://tower:3000`, the
+session cookie is otherwise marked `Secure`, the browser drops it, and login
+appears to succeed then returns you to the login page with no error. Set it back
+to `true` (or remove it) the moment you put HTTPS in front.
+
+**4. Worker** — same image, no ports. This is what does the daily scraping and
+sends Telegram alerts; without it nothing is ever re-checked:
+
+| Field | Value |
+|---|---|
+| Name | `price-tracker-worker` |
+| Repository | `arcralius/price-tracker:0.1.1` |
+| Network Type | `tracker-net` |
+| Post Arguments | `npx tsx worker/index.ts` |
+| Variable | `DATABASE_URL` = *(same as web)* |
+| Variable | `TELEGRAM_BOT_TOKEN` = *(your token, or leave unset)* |
+| Variable | `CHECK_CRON` = `0 9 * * *` |
+| Variable | `TZ` = `Asia/Singapore` |
+
+Check its log for `[worker] starting.` and, if you set a token,
+`[worker] Telegram alerts enabled.`
+
+Compose does all of the above from one file, including startup ordering and
+restart policies, which is why it's the recommended route.
 
 Back up `/mnt/cache/appdata/price-tracker/` with the Appdata Backup plugin, or
 use the `pg_dump` cron below — the plugin copies files, which for a running
