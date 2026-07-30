@@ -37,23 +37,89 @@ npm run check-now            # scrape everything right now, ignoring the schedul
 
 ## Deploying to your own server
 
-Requirements: a Linux box with Docker, a domain whose A record points at it, and
-ports 80 + 443 open. Caddy handles certificates itself — there is no certbot step.
+Requirements: a Linux box with Docker and the Compose plugin, a domain whose DNS
+A record points at its public IP, and ports 80 + 443 reachable. Caddy obtains and
+renews the TLS certificate itself — there is no certbot step.
+
+### 0. Prerequisites, on the server
 
 ```bash
-git clone <your-repo> tracker && cd tracker
+docker --version && docker compose version   # need both
+
+# DNS must already resolve to this machine, or the certificate request fails
+curl -s ifconfig.me; echo          # this server's public IP
+dig +short tracker.example.com     # must match the line above
+
+sudo ufw allow 80 && sudo ufw allow 443   # if ufw is active
+```
+
+Getting the certificate wrong is the most common failure: Let's Encrypt has to
+reach your server *by name* over port 80 before it will issue anything.
+
+### 1. Choose how the app image gets there
+
+**Option A — build on the server.** No registry needed, and what runs is exactly
+the source you can see.
+
+```bash
+git clone https://github.com/Arcralius/price-tracker.git tracker && cd tracker
 cp .env.prod.example .env.prod
-
-# fill in .env.prod — every CHANGE_ME matters
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # SESSION_SECRET
-openssl rand -base64 24                                                   # POSTGRES_PASSWORD
-
+# ... edit .env.prod (step 2), then:
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-Then open `https://your-domain`, create your account, and **set `SIGNUP_MODE=closed`
-in `.env.prod` and re-run the compose command.** Otherwise anyone who finds the
-URL can register.
+**Option B — pull a published image.** Faster, and needs no build toolchain or
+source on the server. Only three files have to be present:
+
+```bash
+mkdir -p /srv/tracker && cd /srv/tracker
+curl -O https://raw.githubusercontent.com/Arcralius/price-tracker/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/Arcralius/price-tracker/main/Caddyfile
+curl -o .env.prod https://raw.githubusercontent.com/Arcralius/price-tracker/main/.env.prod.example
+# ... edit .env.prod, setting APP_IMAGE=<you>/price-tracker:0.1.0, then:
+docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
+```
+
+The database migrations travel inside the image, so nothing else is needed.
+Pin a version tag rather than `:latest`, so a redeploy can't silently change
+the running code.
+
+### 2. Fill in `.env.prod`
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # SESSION_SECRET
+openssl rand -base64 24                                                   # POSTGRES_PASSWORD
+```
+
+At minimum set `DOMAIN`, `ACME_EMAIL`, `POSTGRES_PASSWORD` and `SESSION_SECRET`.
+The stack refuses to start if the last two are missing rather than falling back
+to a default — that is deliberate.
+
+### 3. Watch it come up
+
+```bash
+C="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+
+$C ps                    # web should reach (healthy) within ~30s
+$C logs migrate          # want: All migrations have been successfully applied.
+$C logs caddy | tail     # want: certificate obtained successfully
+curl -I https://tracker.example.com/login    # want: HTTP/2 200
+```
+
+Startup order is enforced: `db` must pass its healthcheck, then `migrate` must
+exit 0, and only then do `web` and `worker` start. A failed migration therefore
+stops the deploy instead of half-starting the app.
+
+### 4. Lock it down — do not skip this
+
+```bash
+# create your account at https://tracker.example.com first, then:
+sed -i 's/^SIGNUP_MODE=.*/SIGNUP_MODE="closed"/' .env.prod
+$C up -d web
+```
+
+Until you do, anyone who finds the URL can register an account.
 
 How the prod stack differs from the dev one:
 

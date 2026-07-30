@@ -32,6 +32,7 @@ services:
   # Applies pending migrations, then exits. `web` waits for it to succeed, so a
   # bad migration stops the deploy instead of half-starting the app.
   migrate:
+    image: ${APP_IMAGE:-price-tracker:local}
     build: .
     restart: "no"
     command: npx prisma migrate deploy
@@ -43,6 +44,7 @@ services:
     networks: [internal]
 
   web:
+    image: ${APP_IMAGE:-price-tracker:local}
     build: .
     restart: unless-stopped
     command: node server.js
@@ -70,6 +72,7 @@ services:
     networks: [internal]
 
   worker:
+    image: ${APP_IMAGE:-price-tracker:local}
     build: .
     restart: unless-stopped
     command: npx tsx worker/index.ts
