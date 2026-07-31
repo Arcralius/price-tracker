@@ -171,7 +171,7 @@ well-known source of corruption. Use the direct pool path:
 PGDATA_VOLUME="/mnt/cache/appdata/price-tracker/pgdata"
 CADDY_DATA_VOLUME="/mnt/cache/appdata/price-tracker/caddy-data"
 CADDY_CONFIG_VOLUME="/mnt/cache/appdata/price-tracker/caddy-config"
-APP_IMAGE="arcralius/price-tracker:0.2.0"
+APP_IMAGE="arcralius/price-tracker:0.3.0"
 ```
 
 If your pool is named something else (Unraid 6.12+ allows this), use that name —
@@ -273,7 +273,7 @@ password:
 ```bash
 docker run --rm --network tracker-net \
   -e DATABASE_URL="postgresql://tracker:YOURPASSWORD@tracker-db:5432/tracker?schema=public" \
-  arcralius/price-tracker:0.2.0 npx prisma migrate deploy
+  arcralius/price-tracker:0.3.0 npx prisma migrate deploy
 ```
 
 Expect `All migrations have been successfully applied.` Re-run this after
@@ -284,7 +284,7 @@ pulling a new image version; it is a no-op when nothing is pending.
 | Field | Value |
 |---|---|
 | Name | `price-tracker-web` |
-| Repository | `arcralius/price-tracker:0.2.0` |
+| Repository | `arcralius/price-tracker:0.3.0` |
 | Network Type | `tracker-net` |
 | Port | Container `3000` → Host `3000` |
 | WebUI | `http://[IP]:[PORT:3000]` |
@@ -306,7 +306,7 @@ sends Telegram alerts; without it nothing is ever re-checked:
 | Field | Value |
 |---|---|
 | Name | `price-tracker-worker` |
-| Repository | `arcralius/price-tracker:0.2.0` |
+| Repository | `arcralius/price-tracker:0.3.0` |
 | Network Type | `tracker-net` |
 | Post Arguments | `npx tsx worker/index.ts` |
 | Variable | `DATABASE_URL` = *(same as web)* |
@@ -457,9 +457,18 @@ Telegram doesn't let bots message people who haven't talked to them first, which
 step exists. The worker polls `getUpdates` once a minute to pick up new links; the Settings page also
 has a "check now" button so you don't have to wait.
 
-**When you get pinged:** by default, any price drop. Set an "alert me below" price on an item and
-you'll only hear about it once it's at or under that number. Repeat alerts for the same price are
-suppressed.
+**When you get pinged.** Alerts are delivered on a schedule you set, not the
+instant a price moves. In **Settings → Notification schedule** you choose the
+times of day and the timezone; "how many times a day" is simply how many times
+you list. Prices are refreshed just before each one, so the figure you're sent
+is the one on the site now, and you get a single message per slot covering
+everything that dropped.
+
+Any item can override that from its own page — leave the field blank to follow
+the account default. Setting an "alert me below" price means you only hear about
+it once it's at or under that number; without one, any drop qualifies. A figure
+already announced is never repeated, and the suppression clears if the price
+climbs back above it.
 
 ## How price extraction works
 

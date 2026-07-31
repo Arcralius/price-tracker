@@ -9,12 +9,17 @@ export default async function LoginPage() {
   const signups = await signupsAllowed();
 
   return (
-    <div className="auth-shell">
-      <h1>Price Tracker</h1>
-      <p className="sub">
-        Paste any product URL. We check it once a day and message you on Telegram when it drops.
-      </p>
-      <AuthForm signupsOpen={signups.open} needsInviteCode={signups.needsCode} />
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-mark">₿</span>
+          <span className="name">Price Tracker</span>
+        </div>
+        <p className="sub" style={{ textAlign: "center" }}>
+          Paste any product URL. We watch the price and message you on Telegram when it drops.
+        </p>
+        <AuthForm signupsOpen={signups.open} needsInviteCode={signups.needsCode} />
+      </div>
     </div>
   );
 }

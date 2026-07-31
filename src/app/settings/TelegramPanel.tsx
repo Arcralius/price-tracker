@@ -32,7 +32,7 @@ export function TelegramPanel({
   if (!enabled) {
     return (
       <div className="card">
-        <h2>Telegram alerts</h2>
+        <div className="card-head"><div><h2>Telegram alerts</h2></div></div>
         <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
           Not configured. Create a bot with{" "}
           <a href="https://t.me/BotFather" target="_blank" rel="noreferrer noopener">
@@ -49,7 +49,12 @@ export function TelegramPanel({
 
   return (
     <div className="card">
-      <h2>Telegram alerts</h2>
+      <div className="card-head">
+        <div>
+          <h2>Telegram alerts</h2>
+          <p>Where the notifications actually go.</p>
+        </div>
+      </div>
 
       {linkState.error && <div className="alert error">{linkState.error}</div>}
       {linkState.message && <div className="alert ok">{linkState.message}</div>}

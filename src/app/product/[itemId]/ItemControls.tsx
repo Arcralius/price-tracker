@@ -1,26 +1,42 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { refreshItem, removeItem, updateItem, type ActionState } from "@/app/actions/items";
 import { SubmitButton } from "@/components/SubmitButton";
+import { describeSlots, parseSlots } from "@/lib/schedule";
 
 export function ItemControls({
   itemId,
   nickname,
   targetPrice,
   currency,
+  notifyTimes,
+  accountTimes,
+  timezone,
 }: {
   itemId: string;
   nickname: string;
   targetPrice: number | null;
   currency: string;
+  notifyTimes: string[];
+  accountTimes: string[];
+  timezone: string;
 }) {
   const [saveState, saveAction] = useActionState<ActionState, FormData>(updateItem, {});
   const [checkState, checkAction] = useActionState<ActionState, FormData>(refreshItem, {});
+  const [times, setTimes] = useState(notifyTimes.join(", "));
+
+  const parsed = parseSlots(times);
+  const usingDefault = times.trim() === "";
 
   return (
     <div className="card">
-      <h2>Settings for this item</h2>
+      <div className="card-head">
+        <div>
+          <h2>This item</h2>
+          <p>Overrides for just this product.</p>
+        </div>
+      </div>
 
       {saveState.error && <div className="alert error">{saveState.error}</div>}
       {saveState.message && <div className="alert ok">{saveState.message}</div>}
@@ -29,6 +45,7 @@ export function ItemControls({
 
       <form action={saveAction}>
         <input type="hidden" name="itemId" value={itemId} />
+
         <div className="field-row">
           <div className="field-grow">
             <label htmlFor="nickname">Nickname</label>
@@ -45,14 +62,44 @@ export function ItemControls({
               defaultValue={targetPrice ?? ""}
               placeholder="Any drop"
             />
+            <div className="hint">Blank = tell me about any drop.</div>
           </div>
         </div>
-        <div style={{ marginTop: 14 }}>
+
+        <div style={{ marginTop: 16 }}>
+          <label htmlFor="notifyTimes">Notification times for this item</label>
+          <input
+            id="notifyTimes"
+            name="notifyTimes"
+            type="text"
+            value={times}
+            onChange={(e) => setTimes(e.target.value)}
+            placeholder={`Leave blank to use your default (${accountTimes.join(", ")})`}
+          />
+          <div className="hint">
+            {usingDefault ? (
+              <>
+                Using your account default — {describeSlots(accountTimes)} ({timezone}).
+              </>
+            ) : parsed.invalid.length > 0 ? (
+              <>Can&apos;t read: {parsed.invalid.join(", ")}. Use 24-hour HH:MM.</>
+            ) : (
+              <>
+                Custom for this item — {describeSlots(parsed.slots)} ({timezone}). Clear the field to go
+                back to your default.
+              </>
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
           <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
         </div>
       </form>
 
-      <div className="row" style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 18 }}>
+      <hr className="divider" />
+
+      <div className="row">
         <form action={checkAction}>
           <input type="hidden" name="itemId" value={itemId} />
           <SubmitButton className="secondary" pendingLabel="Checking…">

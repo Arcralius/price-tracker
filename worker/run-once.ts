@@ -1,7 +1,7 @@
 import { prisma } from "../src/lib/db";
 import { checkAllProducts } from "../src/lib/tracker";
 
-/** `npm run check-now` — scrapes everything immediately instead of waiting for cron. */
+/** `npm run check-now` — scrapes everything immediately, without notifying. */
 async function main() {
   const results = await checkAllProducts({ delayMs: 1_000 });
 
@@ -10,8 +10,8 @@ async function main() {
     else console.log(`  FAIL  \t${result.title}: ${result.error}`);
   }
 
-  const alerts = results.reduce((sum, r) => sum + r.alertsSent, 0);
-  console.log(`\n${results.filter((r) => r.ok).length}/${results.length} scraped, ${alerts} alert(s) sent.`);
+  console.log(`\n${results.filter((r) => r.ok).length}/${results.length} scraped.`);
+  console.log("Alerts are sent by the worker at your notification times, not here.");
 }
 
 main()

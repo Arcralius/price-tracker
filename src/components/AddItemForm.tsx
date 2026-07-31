@@ -19,7 +19,12 @@ export function AddItemForm() {
 
   return (
     <div className="card">
-      <h2>Track something new</h2>
+      <div className="card-head">
+        <div>
+          <h2>Track something new</h2>
+          <p>We read the price straight away to confirm the page works.</p>
+        </div>
+      </div>
 
       {state.error && <div className="alert error">{state.error}</div>}
       {state.message && <div className="alert ok">{state.message}</div>}
@@ -47,10 +52,7 @@ export function AddItemForm() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <SubmitButton pendingLabel="Fetching price…">Add</SubmitButton>
-          <span className="muted" style={{ fontSize: 12.5, marginLeft: 12 }}>
-            We read the price now to confirm the page works.
-          </span>
+          <SubmitButton pendingLabel="Fetching price…">Add item</SubmitButton>
         </div>
       </form>
     </div>

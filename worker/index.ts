@@ -1,52 +1,86 @@
 import cron from "node-cron";
 import { prisma } from "../src/lib/db";
-import { checkAllProducts } from "../src/lib/tracker";
+import { runDueSlots } from "../src/lib/notify";
 import { pollTelegramLinks, telegramEnabled } from "../src/lib/telegram";
+import { checkAllProducts } from "../src/lib/tracker";
 
-const CHECK_CRON = process.env.CHECK_CRON || "0 9 * * *";
+/**
+ * The tick interval, in minutes. Notification slots are matched against a
+ * window of exactly this width, so changing one without the other would let
+ * slots fall between ticks and never fire.
+ */
+const TICK_MINUTES = 5;
+const TICK_CRON = `*/${TICK_MINUTES} * * * *`;
+
+/** Baseline sweep, so price history accrues even for accounts with no alerts. */
+const BASELINE_CRON = process.env.CHECK_CRON || "0 9 * * *";
 const TIMEZONE = process.env.TZ || "Asia/Singapore";
 
-let running = false;
+let slotRunning = false;
+let baselineRunning = false;
 
-async function runDailyCheck(trigger: string) {
-  if (running) {
-    console.log(`[worker] ${trigger}: previous run still in progress, skipping.`);
+async function runSlots() {
+  if (slotRunning) {
+    console.log("[worker] slot tick still running, skipping this one.");
     return;
   }
-  running = true;
+  slotRunning = true;
+
+  try {
+    const runs = await runDueSlots(new Date(), TICK_MINUTES);
+    for (const run of runs) {
+      console.log(
+        `[worker] slot ${run.slot} for ${run.email}: ` +
+          `${run.itemsConsidered} item(s) due, ${run.productsRefreshed} refreshed, ` +
+          `${run.alerted} alert(s)${run.alerted ? (run.sent ? " sent" : " NOT sent") : ""}.`
+      );
+    }
+  } catch (error) {
+    console.error("[worker] slot tick failed:", error);
+  } finally {
+    slotRunning = false;
+  }
+}
+
+async function runBaseline(trigger: string) {
+  if (baselineRunning) {
+    console.log(`[worker] ${trigger}: baseline already running, skipping.`);
+    return;
+  }
+  baselineRunning = true;
   const startedAt = Date.now();
 
   try {
-    console.log(`[worker] ${trigger}: starting price check…`);
+    console.log(`[worker] ${trigger}: baseline price sweep starting…`);
     const results = await checkAllProducts();
-
     const ok = results.filter((r) => r.ok).length;
-    const alerts = results.reduce((sum, r) => sum + r.alertsSent, 0);
     const seconds = Math.round((Date.now() - startedAt) / 1000);
 
-    console.log(`[worker] done in ${seconds}s — ${ok}/${results.length} scraped, ${alerts} alert(s) sent.`);
+    console.log(`[worker] baseline done in ${seconds}s — ${ok}/${results.length} scraped.`);
     for (const failure of results.filter((r) => !r.ok)) {
       console.warn(`[worker]   FAILED ${failure.title}: ${failure.error}`);
     }
   } catch (error) {
-    console.error("[worker] check run threw:", error);
+    console.error("[worker] baseline sweep threw:", error);
   } finally {
-    running = false;
+    baselineRunning = false;
   }
 }
 
 async function main() {
-  console.log(`[worker] starting. schedule="${CHECK_CRON}" tz=${TIMEZONE}`);
+  console.log(`[worker] starting. slots every ${TICK_MINUTES}m, baseline "${BASELINE_CRON}", tz=${TIMEZONE}`);
 
-  if (!cron.validate(CHECK_CRON)) {
-    console.error(`[worker] CHECK_CRON "${CHECK_CRON}" is not a valid cron expression. Exiting.`);
+  if (!cron.validate(BASELINE_CRON)) {
+    console.error(`[worker] CHECK_CRON "${BASELINE_CRON}" is not a valid cron expression. Exiting.`);
     process.exit(1);
   }
 
-  cron.schedule(CHECK_CRON, () => void runDailyCheck("scheduled"), { timezone: TIMEZONE });
+  // Slots are matched in each account's own timezone, so this scheduler just
+  // needs to tick reliably; the container timezone doesn't affect delivery.
+  cron.schedule(TICK_CRON, () => void runSlots(), { timezone: "UTC" });
+  cron.schedule(BASELINE_CRON, () => void runBaseline("scheduled"), { timezone: TIMEZONE });
 
   if (telegramEnabled()) {
-    // Short poll so "/start <code>" links resolve within a minute.
     cron.schedule("* * * * *", async () => {
       try {
         const linked = await pollTelegramLinks();
@@ -61,7 +95,7 @@ async function main() {
   }
 
   if (process.env.CHECK_ON_BOOT === "true") {
-    await runDailyCheck("boot");
+    await runBaseline("boot");
   }
 }
 

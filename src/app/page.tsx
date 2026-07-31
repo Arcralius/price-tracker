@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Nav } from "@/components/Nav";
+import { Shell } from "@/components/Shell";
 import { AddItemForm } from "@/components/AddItemForm";
 import { prisma } from "@/lib/db";
 import { getUser } from "@/lib/session";
+import { effectiveSlots } from "@/lib/schedule";
 import { computeStats, formatMoney, formatDate } from "@/lib/stats";
 import { num, toPoints } from "@/lib/tracker";
 
@@ -16,37 +17,65 @@ export default async function DashboardPage() {
   const items = await prisma.trackedItem.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
-    include: {
-      product: {
-        include: { prices: { orderBy: { recordedAt: "asc" } } },
-      },
-    },
+    include: { product: { include: { prices: { orderBy: { recordedAt: "asc" } } } } },
   });
 
-  return (
-    <div className="shell">
-      <Nav email={user.email} />
+  const rows = items.map((item) => {
+    const stats = computeStats(toPoints(item.product.prices));
+    return {
+      item,
+      stats,
+      slots: effectiveSlots(item.notifyTimes, user.notifyTimes),
+      custom: item.notifyTimes.length > 0,
+    };
+  });
 
-      <h1>Tracked products</h1>
-      <p className="sub">
-        {items.length === 0
-          ? "Nothing tracked yet."
-          : `${items.length} item${items.length === 1 ? "" : "s"}, checked once a day.`}
-      </p>
+  const atLow = rows.filter((r) => r.stats.isAtHistoricalLow && r.stats.points > 1).length;
+  const onSale = rows.filter((r) => r.stats.onSale).length;
+  const failing = rows.filter((r) => r.item.product.lastError).length;
+
+  const totalSaving = rows.reduce((sum, r) => {
+    if (r.stats.high === null || r.stats.current === null) return sum;
+    return sum + Math.max(0, r.stats.high - r.stats.current);
+  }, 0);
+
+  return (
+    <Shell
+      email={user.email}
+      active="dashboard"
+      title="Tracked items"
+      subtitle={
+        items.length === 0
+          ? "Nothing tracked yet"
+          : `${items.length} item${items.length === 1 ? "" : "s"} · alerts at ${user.notifyTimes.join(", ")} ${user.timezone}`
+      }
+    >
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        <Tile icon="▤" tone="brand" k="Tracking" v={String(items.length)} n="products" />
+        <Tile icon="▼" tone="good" k="At their lowest" v={String(atLow)} n="since you started" />
+        <Tile icon="%" tone="warn" k="On sale now" v={String(onSale)} n="below usual price" />
+        <Tile
+          icon={failing ? "!" : "✓"}
+          tone={failing ? "bad" : "info"}
+          k={failing ? "Failing checks" : "Off their peak"}
+          v={failing ? String(failing) : formatMoney(totalSaving, items[0]?.product.currency ?? "SGD")}
+          n={failing ? "see the item for why" : "summed across items"}
+        />
+      </div>
 
       <AddItemForm />
 
-      <div style={{ height: 24 }} />
+      <div style={{ height: 20 }} />
 
       {items.length === 0 ? (
         <div className="empty">
-          Paste a product URL above — a Uniqlo item, an Amazon listing, a flight fare page, anything with a
-          price on it.
+          <div className="big">🏷️</div>
+          Paste a product URL above — a Uniqlo item, an Amazon listing, a Shopify store, anything
+          with a price on it.
         </div>
       ) : (
         <div className="item-list">
-          {items.map((item) => {
-            const stats = computeStats(toPoints(item.product.prices));
+          {rows.map(({ item, stats, slots, custom }) => {
             const currency = item.product.currency;
             const target = num(item.targetPrice);
 
@@ -64,15 +93,18 @@ export default async function DashboardPage() {
                   <div className="meta">
                     {item.product.site}
                     {" · "}
-                    {stats.points} price point{stats.points === 1 ? "" : "s"}
+                    {stats.points} point{stats.points === 1 ? "" : "s"}
                     {target !== null && ` · target ${formatMoney(target, currency)}`}
                     {stats.currentAt && ` · checked ${formatDate(stats.currentAt)}`}
                   </div>
-                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                  <div className="row" style={{ gap: 6, marginTop: 7 }}>
                     {stats.isAtHistoricalLow && stats.points > 1 && <span className="pill low">Lowest yet</span>}
                     {stats.onSale && <span className="pill sale">On sale</span>}
                     {!stats.inStock && <span className="pill oos">Out of stock</span>}
                     {item.product.lastError && <span className="pill err">Check failed</span>}
+                    <span className="pill slot" title={custom ? "Custom schedule" : "Account default"}>
+                      {custom ? "⏱" : "⏲"} {slots.join(", ")}
+                    </span>
                   </div>
                 </div>
 
@@ -83,15 +115,36 @@ export default async function DashboardPage() {
                       {stats.changeAmount < 0 ? "▼" : "▲"} {formatMoney(Math.abs(stats.changeAmount), currency)}
                     </div>
                   )}
-                  {stats.low !== null && (
-                    <div className="meta">low {formatMoney(stats.low, currency)}</div>
-                  )}
+                  {stats.low !== null && <div className="meta">low {formatMoney(stats.low, currency)}</div>}
                 </div>
               </Link>
             );
           })}
         </div>
       )}
+    </Shell>
+  );
+}
+
+function Tile({
+  icon,
+  tone,
+  k,
+  v,
+  n,
+}: {
+  icon: string;
+  tone: "brand" | "good" | "warn" | "info" | "bad";
+  k: string;
+  v: string;
+  n?: string;
+}) {
+  return (
+    <div className="stat">
+      <div className={`stat-ico ${tone}`}>{icon}</div>
+      <div className="k">{k}</div>
+      <div className="v">{v}</div>
+      {n && <div className="n">{n}</div>}
     </div>
   );
 }

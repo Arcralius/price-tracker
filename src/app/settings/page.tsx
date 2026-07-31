@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
-import { Nav } from "@/components/Nav";
+import { Shell } from "@/components/Shell";
+import { SchedulePanel } from "./SchedulePanel";
 import { TelegramPanel } from "./TelegramPanel";
 import { getUser } from "@/lib/session";
+import { describeSlots } from "@/lib/schedule";
 import { getBotUsername, telegramEnabled } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +16,13 @@ export default async function SettingsPage() {
   const botUsername = enabled ? await getBotUsername() : null;
 
   return (
-    <div className="shell">
-      <Nav email={user.email} />
-
-      <h1>Settings</h1>
-      <p className="sub">Alerts, and how often we check.</p>
+    <Shell
+      email={user.email}
+      active="settings"
+      title="Settings"
+      subtitle={`${describeSlots(user.notifyTimes)} · ${user.timezone}`}
+    >
+      <SchedulePanel timezone={user.timezone} notifyTimes={user.notifyTimes} />
 
       <TelegramPanel
         enabled={enabled}
@@ -28,23 +32,30 @@ export default async function SettingsPage() {
       />
 
       <div className="card">
-        <h2>Checking schedule</h2>
+        <div className="card-head">
+          <div>
+            <h2>How checking works</h2>
+          </div>
+        </div>
         <p className="muted" style={{ marginTop: 0 }}>
-          Every tracked product is scraped once a day by the worker process. The time is set with the{" "}
-          <code className="inline">CHECK_CRON</code> environment variable (currently{" "}
-          <code className="inline">{process.env.CHECK_CRON || "0 9 * * *"}</code> in{" "}
-          <code className="inline">{process.env.TZ || "server local time"}</code>). You can also force a check
-          for a single item from its page, or run <code className="inline">npm run check-now</code> to scrape
-          everything immediately.
+          Prices are refreshed just before each of your delivery times, so the figure you&apos;re sent is
+          the one on the site now. A separate daily sweep at{" "}
+          <code className="inline">{process.env.CHECK_CRON || "09:00"}</code> records history for
+          everything, whether or not you have alerts on. You can also force a check for a single item
+          from its page.
         </p>
       </div>
 
       <div className="card">
-        <h2>Account</h2>
-        <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
+        <div className="card-head">
+          <div>
+            <h2>Account</h2>
+          </div>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
           Signed in as <strong>{user.email}</strong>.
         </p>
       </div>
-    </div>
+    </Shell>
   );
 }

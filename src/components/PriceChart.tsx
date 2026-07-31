@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,6 +14,70 @@ import {
 
 export type ChartPoint = { t: number; price: number; listPrice: number | null };
 
+type Palette = {
+  grid: string;
+  axis: string;
+  line: string;
+  surface: string;
+  border: string;
+  text: string;
+  good: string;
+  warn: string;
+};
+
+const FALLBACK: Palette = {
+  grid: "#e6eaf2",
+  axis: "#94a3b8",
+  line: "#5b5bd6",
+  surface: "#ffffff",
+  border: "#e6eaf2",
+  text: "#1c2536",
+  good: "#12a67a",
+  warn: "#e2900b",
+};
+
+/**
+ * Recharts takes concrete colours, not CSS variables (var() isn't resolved in
+ * SVG presentation attributes), so read the theme's computed values and
+ * re-read them whenever the theme changes.
+ */
+function useChartPalette(): Palette {
+  const [palette, setPalette] = useState<Palette>(FALLBACK);
+
+  useEffect(() => {
+    const read = () => {
+      const s = getComputedStyle(document.documentElement);
+      const v = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback;
+      setPalette({
+        grid: v("--border", FALLBACK.grid),
+        axis: v("--text-dim", FALLBACK.axis),
+        line: v("--brand", FALLBACK.line),
+        surface: v("--surface", FALLBACK.surface),
+        border: v("--border", FALLBACK.border),
+        text: v("--text", FALLBACK.text),
+        good: v("--good", FALLBACK.good),
+        warn: v("--warn", FALLBACK.warn),
+      });
+    };
+
+    read();
+
+    // The toggle stamps data-theme on <html>; the OS preference can also change.
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", read);
+
+    return () => {
+      observer.disconnect();
+      media.removeEventListener("change", read);
+    };
+  }, []);
+
+  return palette;
+}
+
 export function PriceChart({
   data,
   currency,
@@ -24,10 +89,12 @@ export function PriceChart({
   low: number | null;
   target: number | null;
 }) {
+  const c = useChartPalette();
+
   if (data.length < 2) {
     return (
       <div className="empty" style={{ padding: 32 }}>
-        Only one price recorded so far — the chart appears after the next daily check.
+        Only one price recorded so far — the chart appears after the next check.
       </div>
     );
   }
@@ -40,22 +107,25 @@ export function PriceChart({
 
   const money = (v: number) =>
     new Intl.NumberFormat("en-SG", { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
-
   const moneyExact = (v: number) =>
     new Intl.NumberFormat("en-SG", { style: "currency", currency, minimumFractionDigits: 2 }).format(v);
 
+  // With low and target close together the two labels collide, so anchor them
+  // to opposite ends of their lines.
+  const labelsCollide = low !== null && target !== null && Math.abs(low - target) < (max - min) * 0.12;
+
   return (
-    <div style={{ width: "100%", height: 280 }}>
+    <div style={{ width: "100%", height: 300 }}>
       <ResponsiveContainer>
-        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
           <defs>
             <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#5b8cff" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="#5b8cff" stopOpacity={0} />
+              <stop offset="0%" stopColor={c.line} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={c.line} stopOpacity={0.02} />
             </linearGradient>
           </defs>
 
-          <CartesianGrid stroke="#262d3d" vertical={false} />
+          <CartesianGrid stroke={c.grid} vertical={false} />
 
           <XAxis
             dataKey="t"
@@ -63,18 +133,18 @@ export function PriceChart({
             scale="time"
             domain={["dataMin", "dataMax"]}
             tickFormatter={(t) => new Date(t).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}
-            stroke="#8b95a8"
-            tick={{ fontSize: 12 }}
+            stroke={c.axis}
+            tick={{ fontSize: 12, fill: c.axis }}
             tickLine={false}
-            axisLine={{ stroke: "#262d3d" }}
+            axisLine={{ stroke: c.grid }}
             minTickGap={28}
           />
 
           <YAxis
             domain={[Math.max(0, min - pad), max + pad]}
             tickFormatter={money}
-            stroke="#8b95a8"
-            tick={{ fontSize: 12 }}
+            stroke={c.axis}
+            tick={{ fontSize: 12, fill: c.axis }}
             tickLine={false}
             axisLine={false}
             width={64}
@@ -82,12 +152,15 @@ export function PriceChart({
 
           <Tooltip
             contentStyle={{
-              background: "#151922",
-              border: "1px solid #262d3d",
+              background: c.surface,
+              border: `1px solid ${c.border}`,
               borderRadius: 10,
               fontSize: 13,
+              color: c.text,
+              boxShadow: "0 8px 24px -8px rgba(0,0,0,0.25)",
             }}
-            labelStyle={{ color: "#8b95a8" }}
+            labelStyle={{ color: c.axis }}
+            itemStyle={{ color: c.text }}
             labelFormatter={(t) =>
               new Date(Number(t)).toLocaleDateString("en-SG", {
                 weekday: "short",
@@ -102,28 +175,33 @@ export function PriceChart({
           {low !== null && (
             <ReferenceLine
               y={low}
-              stroke="#37d399"
+              stroke={c.good}
               strokeDasharray="4 4"
-              label={{ value: "all-time low", position: "insideBottomLeft", fill: "#37d399", fontSize: 11 }}
+              label={{ value: "all-time low", position: "insideBottomLeft", fill: c.good, fontSize: 11 }}
             />
           )}
 
           {target !== null && (
             <ReferenceLine
               y={target}
-              stroke="#f0b34a"
+              stroke={c.warn}
               strokeDasharray="2 5"
-              label={{ value: "your target", position: "insideTopLeft", fill: "#f0b34a", fontSize: 11 }}
+              label={{
+                value: "your target",
+                position: labelsCollide ? "insideBottomRight" : "insideTopLeft",
+                fill: c.warn,
+                fontSize: 11,
+              }}
             />
           )}
 
           <Area
             type="stepAfter"
             dataKey="price"
-            stroke="#5b8cff"
+            stroke={c.line}
             strokeWidth={2}
             fill="url(#priceFill)"
-            dot={data.length <= 40 ? { r: 2.5, fill: "#5b8cff", strokeWidth: 0 } : false}
+            dot={data.length <= 40 ? { r: 2.5, fill: c.line, strokeWidth: 0 } : false}
             activeDot={{ r: 4.5 }}
             isAnimationActive={false}
           />

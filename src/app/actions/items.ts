@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { canonicalizeUrl, extractFromUrl } from "@/lib/extract";
 import { getUser } from "@/lib/session";
 import { checkProduct } from "@/lib/tracker";
+import { isValidTimezone, parseSlots } from "@/lib/schedule";
 import { newLinkCode } from "@/lib/session";
 import { pollTelegramLinks, sendMessage } from "@/lib/telegram";
 
@@ -126,10 +127,17 @@ export async function updateItem(_prev: ActionState, form: FormData): Promise<Ac
   const id = String(form.get("itemId") ?? "");
   const nickname = String(form.get("nickname") ?? "").trim();
   const targetRaw = String(form.get("targetPrice") ?? "").trim();
+  const slotsRaw = String(form.get("notifyTimes") ?? "").trim();
 
   const targetPrice = targetRaw ? Number(targetRaw) : null;
   if (targetPrice !== null && (!Number.isFinite(targetPrice) || targetPrice <= 0)) {
     return { error: "Target price must be a positive number." };
+  }
+
+  // Blank means "inherit the account default".
+  const { slots, invalid } = parseSlots(slotsRaw);
+  if (invalid.length) {
+    return { error: `Not a valid time: ${invalid.join(", ")}. Use 24-hour HH:MM, e.g. 09:00, 18:30.` };
   }
 
   const updated = await prisma.trackedItem.updateMany({
@@ -137,6 +145,7 @@ export async function updateItem(_prev: ActionState, form: FormData): Promise<Ac
     data: {
       nickname: nickname || null,
       targetPrice: targetPrice !== null ? new Prisma.Decimal(targetPrice.toFixed(2)) : null,
+      notifyTimes: slots,
     },
   });
   if (!updated.count) return { error: "Item not found." };
@@ -218,4 +227,34 @@ export async function unlinkTelegram(): Promise<void> {
 
   await prisma.user.update({ where: { id: user.id }, data: { telegramChatId: null } });
   revalidatePath("/settings");
+}
+
+
+/* --------------------------- Notification schedule ------------------------ */
+
+/** Account-wide default delivery slots, used by items with no override. */
+export async function updateSchedule(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: "You're signed out." };
+
+  const timezone = String(form.get("timezone") ?? "").trim();
+  if (!timezone || !isValidTimezone(timezone)) {
+    return { error: "Pick a valid timezone." };
+  }
+
+  const { slots, invalid } = parseSlots(String(form.get("notifyTimes") ?? ""));
+  if (invalid.length) {
+    return { error: `Not a valid time: ${invalid.join(", ")}. Use 24-hour HH:MM, e.g. 09:00, 18:30.` };
+  }
+  if (slots.length === 0) {
+    return { error: "Add at least one time, or you'll never be notified." };
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { timezone, notifyTimes: slots },
+  });
+
+  revalidatePath("/settings");
+  return { message: `Saved — ${slots.length} notification${slots.length === 1 ? "" : "s"} a day at ${slots.join(", ")}.` };
 }

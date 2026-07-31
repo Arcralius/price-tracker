@@ -42,7 +42,7 @@ services:
   # Applies pending migrations then exits. Runs on every Compose Up, and is a
   # no-op when nothing is pending, so a version bump needs no manual step.
   migrate:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.3.0}
     restart: "no"
     # Retry rather than dying on the first attempt: a healthcheck-passing
     # Postgres can still refuse connections for a moment (it restarts once
@@ -63,7 +63,7 @@ services:
     networks: [internal]
 
   web:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.3.0}
     restart: unless-stopped
     command: node server.js
     ports:
@@ -101,7 +101,7 @@ services:
   # Does the daily scraping and sends the Telegram alerts. Without it nothing
   # is ever re-checked.
   worker:
-    image: ${APP_IMAGE:-arcralius/price-tracker:0.2.0}
+    image: ${APP_IMAGE:-arcralius/price-tracker:0.3.0}
     restart: unless-stopped
     command: npx tsx worker/index.ts
     environment:
