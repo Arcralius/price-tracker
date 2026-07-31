@@ -9,8 +9,8 @@ import { checkAllProducts } from "../src/lib/tracker";
  * window of exactly this width, so changing one without the other would let
  * slots fall between ticks and never fire.
  */
-const TICK_MINUTES = 5;
-const TICK_CRON = `*/${TICK_MINUTES} * * * *`;
+const TICK_MINUTES = 1;
+const TICK_CRON = "* * * * *";
 
 /** Baseline sweep, so price history accrues even for accounts with no alerts. */
 const BASELINE_CRON = process.env.CHECK_CRON || "0 9 * * *";

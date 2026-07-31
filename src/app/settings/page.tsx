@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { SchedulePanel } from "./SchedulePanel";
+import { ListsPanel } from "./ListsPanel";
 import { TelegramPanel } from "./TelegramPanel";
+import { prisma } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { describeSlots } from "@/lib/schedule";
 import { getBotUsername, telegramEnabled } from "@/lib/telegram";
@@ -15,6 +17,12 @@ export default async function SettingsPage() {
   const enabled = telegramEnabled();
   const botUsername = enabled ? await getBotUsername() : null;
 
+  const lists = await prisma.itemList.findMany({
+    where: { userId: user.id },
+    orderBy: { name: "asc" },
+    include: { _count: { select: { items: true } } },
+  });
+
   return (
     <Shell
       email={user.email}
@@ -23,6 +31,8 @@ export default async function SettingsPage() {
       subtitle={`${describeSlots(user.notifyTimes)} · ${user.timezone}`}
     >
       <SchedulePanel timezone={user.timezone} notifyTimes={user.notifyTimes} />
+
+      <ListsPanel lists={lists.map((l) => ({ id: l.id, name: l.name, count: l._count.items }))} />
 
       <TelegramPanel
         enabled={enabled}

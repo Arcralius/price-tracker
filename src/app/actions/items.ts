@@ -258,3 +258,86 @@ export async function updateSchedule(_prev: ActionState, form: FormData): Promis
   revalidatePath("/settings");
   return { message: `Saved — ${slots.length} notification${slots.length === 1 ? "" : "s"} a day at ${slots.join(", ")}.` };
 }
+
+/* --------------------------------- Lists ---------------------------------- */
+
+const MAX_LISTS = 30;
+const MAX_LIST_NAME = 40;
+
+export async function createList(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: "You're signed out." };
+
+  const name = String(form.get("name") ?? "").trim().slice(0, MAX_LIST_NAME);
+  if (!name) return { error: "Give the list a name." };
+
+  const count = await prisma.itemList.count({ where: { userId: user.id } });
+  if (count >= MAX_LISTS) return { error: `You already have ${MAX_LISTS} lists.` };
+
+  const existing = await prisma.itemList.findFirst({ where: { userId: user.id, name } });
+  if (existing) return { error: `You already have a list called "${name}".` };
+
+  await prisma.itemList.create({ data: { userId: user.id, name } });
+  revalidatePath("/");
+  revalidatePath("/settings");
+  return { message: `Created "${name}".` };
+}
+
+export async function renameList(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: "You're signed out." };
+
+  const id = String(form.get("listId") ?? "");
+  const name = String(form.get("name") ?? "").trim().slice(0, MAX_LIST_NAME);
+  if (!name) return { error: "A list needs a name." };
+
+  const clash = await prisma.itemList.findFirst({
+    where: { userId: user.id, name, NOT: { id } },
+  });
+  if (clash) return { error: `You already have a list called "${name}".` };
+
+  const updated = await prisma.itemList.updateMany({ where: { id, userId: user.id }, data: { name } });
+  if (!updated.count) return { error: "List not found." };
+
+  revalidatePath("/");
+  revalidatePath("/settings");
+  return { message: "Renamed." };
+}
+
+/** Deletes the list only — the items in it stay tracked. */
+export async function deleteList(form: FormData): Promise<void> {
+  const user = await getUser();
+  if (!user) redirect("/login");
+
+  const id = String(form.get("listId") ?? "");
+  await prisma.itemList.deleteMany({ where: { id, userId: user.id } });
+
+  revalidatePath("/");
+  revalidatePath("/settings");
+}
+
+/** Replaces an item's list membership with exactly the ids submitted. */
+export async function setItemLists(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const user = await getUser();
+  if (!user) return { error: "You're signed out." };
+
+  const itemId = String(form.get("itemId") ?? "");
+  const item = await prisma.trackedItem.findFirst({ where: { id: itemId, userId: user.id } });
+  if (!item) return { error: "Item not found." };
+
+  // Only accept lists this account owns, so a forged id can't attach anything.
+  const requested = form.getAll("listIds").map(String).filter(Boolean);
+  const owned = await prisma.itemList.findMany({
+    where: { userId: user.id, id: { in: requested } },
+    select: { id: true },
+  });
+
+  await prisma.trackedItem.update({
+    where: { id: itemId },
+    data: { lists: { set: owned.map((l) => ({ id: l.id })) } },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/product/${itemId}`);
+  return { message: owned.length ? `In ${owned.length} list${owned.length === 1 ? "" : "s"}.` : "Removed from all lists." };
+}

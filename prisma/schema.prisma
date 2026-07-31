@@ -26,6 +26,22 @@ model User {
   notifyTimes String[] @default(["09:00"])
 
   items TrackedItem[]
+  lists ItemList[]
+}
+
+/// A user-defined collection. An item can sit in any number of them.
+model ItemList {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name  String
+  items TrackedItem[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model Product {
@@ -76,6 +92,8 @@ model TrackedItem {
 
   // Per-item delivery slots. Empty means "inherit the account default".
   notifyTimes String[] @default([])
+
+  lists ItemList[]
 
   createdAt DateTime @default(now())
 

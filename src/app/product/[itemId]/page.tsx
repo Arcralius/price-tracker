@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { PriceChart } from "@/components/PriceChart";
 import { ItemControls } from "./ItemControls";
+import { ListPicker } from "@/components/ListPicker";
 import { prisma } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { describeSlots, effectiveSlots } from "@/lib/schedule";
@@ -17,10 +18,20 @@ export default async function ProductPage({ params }: { params: Promise<{ itemId
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const item = await prisma.trackedItem.findFirst({
-    where: { id: itemId, userId: user.id },
-    include: { product: { include: { prices: { orderBy: { recordedAt: "asc" } } } } },
-  });
+  const [item, lists] = await Promise.all([
+    prisma.trackedItem.findFirst({
+      where: { id: itemId, userId: user.id },
+      include: {
+        lists: { select: { id: true } },
+        product: { include: { prices: { orderBy: { recordedAt: "asc" } } } },
+      },
+    }),
+    prisma.itemList.findMany({
+      where: { userId: user.id },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
   if (!item) notFound();
 
   const product = item.product;
@@ -143,6 +154,8 @@ export default async function ProductPage({ params }: { params: Promise<{ itemId
         </div>
         <PriceChart data={chartData} currency={currency} low={stats.low} target={target} />
       </div>
+
+      <ListPicker itemId={item.id} lists={lists} selected={item.lists.map((l) => l.id)} />
 
       <ItemControls
         itemId={item.id}

@@ -171,7 +171,7 @@ well-known source of corruption. Use the direct pool path:
 PGDATA_VOLUME="/mnt/cache/appdata/price-tracker/pgdata"
 CADDY_DATA_VOLUME="/mnt/cache/appdata/price-tracker/caddy-data"
 CADDY_CONFIG_VOLUME="/mnt/cache/appdata/price-tracker/caddy-config"
-APP_IMAGE="arcralius/price-tracker:0.3.0"
+APP_IMAGE="arcralius/price-tracker:0.4.0"
 ```
 
 If your pool is named something else (Unraid 6.12+ allows this), use that name —
@@ -273,7 +273,7 @@ password:
 ```bash
 docker run --rm --network tracker-net \
   -e DATABASE_URL="postgresql://tracker:YOURPASSWORD@tracker-db:5432/tracker?schema=public" \
-  arcralius/price-tracker:0.3.0 npx prisma migrate deploy
+  arcralius/price-tracker:0.4.0 npx prisma migrate deploy
 ```
 
 Expect `All migrations have been successfully applied.` Re-run this after
@@ -284,7 +284,7 @@ pulling a new image version; it is a no-op when nothing is pending.
 | Field | Value |
 |---|---|
 | Name | `price-tracker-web` |
-| Repository | `arcralius/price-tracker:0.3.0` |
+| Repository | `arcralius/price-tracker:0.4.0` |
 | Network Type | `tracker-net` |
 | Port | Container `3000` → Host `3000` |
 | WebUI | `http://[IP]:[PORT:3000]` |
@@ -306,7 +306,7 @@ sends Telegram alerts; without it nothing is ever re-checked:
 | Field | Value |
 |---|---|
 | Name | `price-tracker-worker` |
-| Repository | `arcralius/price-tracker:0.3.0` |
+| Repository | `arcralius/price-tracker:0.4.0` |
 | Network Type | `tracker-net` |
 | Post Arguments | `npx tsx worker/index.ts` |
 | Variable | `DATABASE_URL` = *(same as web)* |
@@ -416,6 +416,17 @@ $C exec -T db pg_dump -U tracker tracker | gzip > backup-$(date +%F).sql.gz
 ```
 
 To restore: `gunzip -c backup.sql.gz | $C exec -T db psql -U tracker tracker`.
+
+## Lists and filtering
+
+Items can be grouped into any number of lists — an item can sit in several at
+once. Create one from the filter bar on the dashboard or in Settings; deleting a
+list never deletes the items in it.
+
+The dashboard filters by list, by source site, and by status (on sale, not on
+sale, at its historical low). Filters live in the URL, so a filtered view can be
+bookmarked and survives a refresh, and the stat tiles recount to match what's
+shown.
 
 ## Telegram alerts
 

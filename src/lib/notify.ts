@@ -26,27 +26,32 @@ export type SlotRun = {
  * single digest — one message per slot rather than one per item.
  */
 export async function runDueSlots(at: Date, windowMinutes: number): Promise<SlotRun[]> {
-  const users = await prisma.user.findMany({
-    include: {
-      items: {
-        include: {
-          product: { include: { prices: { orderBy: { recordedAt: "asc" } } } },
-        },
-      },
+  // Two phases so this can run every minute cheaply. First a narrow query of
+  // just the scheduling fields to find who is due; only then load the price
+  // history, which is the expensive part.
+  const candidates = await prisma.user.findMany({
+    select: {
+      id: true,
+      email: true,
+      timezone: true,
+      notifyTimes: true,
+      telegramChatId: true,
+      items: { select: { id: true, productId: true, notifyTimes: true } },
     },
   });
 
   const runs: SlotRun[] = [];
 
-  for (const user of users) {
+  for (const user of candidates) {
     if (user.items.length === 0) continue;
 
-    // Which of this account's items are due right now? Items can carry their
-    // own slots, so two items may fire at different times for one user.
-    const due = user.items.filter((item) => {
-      const slots = effectiveSlots(item.notifyTimes, user.notifyTimes);
-      return dueSlot(slots, at, user.timezone, windowMinutes) !== null;
-    });
+    // Items can carry their own slots, so two items may fire at different
+    // times for the same account.
+    const due = user.items.filter(
+      (item) =>
+        dueSlot(effectiveSlots(item.notifyTimes, user.notifyTimes), at, user.timezone, windowMinutes) !==
+        null
+    );
     if (due.length === 0) continue;
 
     const slot =
@@ -56,15 +61,15 @@ export async function runDueSlots(at: Date, windowMinutes: number): Promise<Slot
     // Refresh anything whose last check predates the freshness window, so the
     // figure we quote is the one on the site now.
     const cutoff = new Date(at.getTime() - FRESH_WITHIN_MINUTES * 60_000);
-    const stale = [
-      ...new Set(
-        due
-          .filter((item) => !item.product.lastCheckedAt || item.product.lastCheckedAt < cutoff)
-          .map((item) => item.productId)
-      ),
-    ];
+    const stale = await prisma.product.findMany({
+      where: {
+        id: { in: [...new Set(due.map((d) => d.productId))] },
+        OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: cutoff } }],
+      },
+      select: { id: true },
+    });
 
-    if (stale.length) await checkProducts(stale);
+    if (stale.length) await checkProducts(stale.map((p) => p.id));
 
     const alerts = await collectAlerts(
       due.map((d) => d.id),
